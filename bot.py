@@ -1,10 +1,10 @@
-import asyncio
 import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
+
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebhookInfo
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
@@ -17,17 +17,23 @@ BASE_DIR = Path(__file__).parent
 ENV_PATH = BASE_DIR / ".env"
 
 if not ENV_PATH.exists():
-    print(f"⚠️ .env fayli topilmadi")
+    print("❌ .env fayli topilmadi!")
+    print(f"📁 {ENV_PATH} faylini yarating va quyidagilarni yozing:")
+    print("BOT_TOKEN=your_bot_token")
+    print("ADMIN_ID=146900578")
     sys.exit(1)
 
 load_dotenv(ENV_PATH)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "146900578"))
+
 if not BOT_TOKEN:
-    print("❌ BOT_TOKEN topilmadi")
+    print("❌ BOT_TOKEN topilmadi!")
     sys.exit(1)
 
-ADMIN_ID = 146900578  # Sizning ID'ingiz
+print(f"✅ Bot sozlandi")
+print(f"✅ Admin ID: {ADMIN_ID}")
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
@@ -87,42 +93,77 @@ async def get_phone(message: types.Message, state: FSMContext):
         f"🆔 Отправитель: {message.from_user.id}"
     )
     
-    await bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode="Markdown")
+    try:
+        await bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode="Markdown")
+    except Exception as e:
+        print(f"❌ Adminga xabar yuborishda xato: {e}")
+    
     await message.answer("Спасибо! Ваша заявка отправлена ✔️")
     await state.clear()
 
-# ========== WEBHOOK SOZLASH ==========
-async def on_startup(bot: Bot):
-    # Webhook sozlash
-    webhook_url = f"https://{"saidakbar118"}.pythonanywhere.com/webhook"
-    await bot.set_webhook(webhook_url)
-    print(f"✅ Webhook sozlandi: {webhook_url}")
+# ========== WEBHOOK HANDLER ==========
+async def set_webhook():
+    """Webhook ni sozlash"""
+    webhook_url = "https://nanoregisterbot.pythonanywhere.com/webhook"
+    
+    try:
+        await bot.set_webhook(webhook_url)
+        print(f"✅ Webhook sozlandi: {webhook_url}")
+    except Exception as e:
+        print(f"❌ Webhook sozlashda xato: {e}")
 
-# ========== AIOHTTP SERVER ==========
-async def aiohttp_app():
+# ========== AIOHTTP APP ==========
+async def webhook_handler(request):
+    """Webhook request'larini qayta ishlash"""
+    try:
+        request_data = await request.json()
+        update = types.Update(**request_data)
+        await dp.feed_update(bot=bot, update=update)
+        return web.Response(text="OK")
+    except Exception as e:
+        print(f"❌ Webhook handler xato: {e}")
+        return web.Response(text="Error", status=500)
+
+async def on_startup(app):
+    """Server ishga tushganda"""
+    print("🚀 Bot server ishga tushdi")
+    await set_webhook()
+
+async def on_shutdown(app):
+    """Server to'xtaganda"""
+    print("🛑 Bot server to'xtadi")
+    await bot.session.close()
+
+def create_app():
+    """Aiohttp application yaratish"""
     app = web.Application()
-    webhook_requests_handler = SimpleRequestHandler(
-        dispatcher=dp,
-        bot=bot,
-    )
     
-    webhook_requests_handler.register(app, path="/webhook")
+    # Webhook endpoint
+    app.router.add_post('/webhook', webhook_handler)
     
-    # Startup handler
+    # Health check
+    app.router.add_get('/', lambda request: web.Response(text="Bot ishlamoqda ✅"))
+    
+    # Startup/shutdown handlers
     app.on_startup.append(on_startup)
+    app.on_shutdown.append(on_shutdown)
     
     return app
 
+# ========== ASOSIY FUNKSIYA ==========
 if __name__ == "__main__":
-    # PythonAnywhere'da web server sifatida ishlash
-    app = asyncio.run(aiohttp_app())
-    
-    # Agar kommand satridan ishga tushirilsa
-    if len(sys.argv) > 1 and sys.argv[1] == "--local":
-        # Local test uchun polling
-        async def local_main():
+    # Agar polling kerak bo'lsa (local test uchun)
+    if len(sys.argv) > 1 and sys.argv[1] == "--polling":
+        import asyncio
+        async def polling_main():
+            await bot.delete_webhook(drop_pending_updates=True)
             await dp.start_polling(bot)
-        asyncio.run(local_main())
+        
+        print("🔄 Polling rejimida ishlayapti...")
+        asyncio.run(polling_main())
+    
     else:
-        # Production uchun
-        web.run_app(app, host="0.0.0.0", port=8080)
+        # Production (webhook rejimi)
+        print("🌐 Webhook rejimida ishlayapti...")
+        app = create_app()
+        web.run_app(app, host='0.0.0.0', port=8080)
