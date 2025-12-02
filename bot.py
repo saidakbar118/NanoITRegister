@@ -3,63 +3,42 @@ import os
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
-
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, WebhookInfo
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.filters import Command
 from aiogram.fsm.state import StatesGroup, State
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
 
 # ========== KONFIGURATSIYA ==========
-# Papka manzilini aniqlash
 BASE_DIR = Path(__file__).parent
 ENV_PATH = BASE_DIR / ".env"
 
-# .env fayli yo'q bo'lsa yaratish
 if not ENV_PATH.exists():
-    print(f"⚠️ .env fayli topilmadi: {ENV_PATH}")
-    print("📝 Namuna .env fayli yaratilmoqda...")
-    with open(ENV_PATH, "w") as f:
-        f.write("# Telegram Bot Token\n")
-        f.write("BOT_TOKEN=your_bot_token_here\n\n")
-        f.write("# Admin Telegram ID\n")
-        f.write("ADMIN_ID=146900578\n")
-    print("✅ .env fayli yaratildi. Token qo'ying!")
-
-# Environment yuklash
-load_dotenv(ENV_PATH)
-
-# Token va Admin ID olish
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN or BOT_TOKEN == "your_bot_token_here":
-    print("❌ XATO: BOT_TOKEN topilmadi yoki default qiymat!")
-    print(f"📁 {ENV_PATH} faylini oching va BOT_TOKEN ni yozing")
-    print("🛠️ Bot token olish uchun: @BotFather > /newbot")
+    print(f"⚠️ .env fayli topilmadi")
     sys.exit(1)
 
-# Admin ID (agar bo'lmasa default)
-ADMIN_ID = 146900578  # Default qiymat
-admin_env = os.getenv("ADMIN_ID")
-if admin_env:
-    try:
-        ADMIN_ID = int(admin_env)
-    except ValueError:
-        print(f"⚠️ ADMIN_ID noto'g'ri: {admin_env}, default ishlatilmoqda")
+load_dotenv(ENV_PATH)
 
-print(f"✅ Bot sozlandi")
-print(f"✅ Admin ID: {ADMIN_ID}")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    print("❌ BOT_TOKEN topilmadi")
+    sys.exit(1)
 
-# Bot obyektlari
+ADMIN_ID = 146900578  # Sizning ID'ingiz
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
 
-# ========== QOLGAN KOD O'ZGARMAS ==========
+# ========== STATES ==========
 class Form(StatesGroup):
     group = State()
     name = State()
     phone = State()
 
+# ========== HANDLERS ==========
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     kb = ReplyKeyboardMarkup(
@@ -112,8 +91,38 @@ async def get_phone(message: types.Message, state: FSMContext):
     await message.answer("Спасибо! Ваша заявка отправлена ✔️")
     await state.clear()
 
-async def main():
-    await dp.start_polling(bot)
+# ========== WEBHOOK SOZLASH ==========
+async def on_startup(bot: Bot):
+    # Webhook sozlash
+    webhook_url = f"https://{YOUR_PYTHONANYWHERE_USERNAME}.pythonanywhere.com/webhook"
+    await bot.set_webhook(webhook_url)
+    print(f"✅ Webhook sozlandi: {webhook_url}")
+
+# ========== AIOHTTP SERVER ==========
+async def aiohttp_app():
+    app = web.Application()
+    webhook_requests_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+    )
+    
+    webhook_requests_handler.register(app, path="/webhook")
+    
+    # Startup handler
+    app.on_startup.append(on_startup)
+    
+    return app
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    # PythonAnywhere'da web server sifatida ishlash
+    app = asyncio.run(aiohttp_app())
+    
+    # Agar kommand satridan ishga tushirilsa
+    if len(sys.argv) > 1 and sys.argv[1] == "--local":
+        # Local test uchun polling
+        async def local_main():
+            await dp.start_polling(bot)
+        asyncio.run(local_main())
+    else:
+        # Production uchun
+        web.run_app(app, host="0.0.0.0", port=8080)
