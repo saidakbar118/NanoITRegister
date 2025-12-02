@@ -1,93 +1,119 @@
-# /var/www/nanoregisterbot_pythonanywhere_com_wsgi.py
-
-import sys
-import os
-
-# Path qo'shish
-path = '/home/nanoregisterbot/NanoITRegister'
-if path not in sys.path:
-    sys.path.append(path)
-
-# Environment variables
-os.environ['BOT_TOKEN'] = 'ВАШ_BOT_TOKEN'
-os.environ['ADMIN_ID'] = '146900578'
-
-# Flask app yaratish (ENGL OSON YO'L)
-from flask import Flask, request, jsonify
 import asyncio
-import threading
+import os
+import sys
+from pathlib import Path
+from dotenv import load_dotenv
 
-app = Flask(__name__)
-
-# Bot obyektini global qilish
-from bot import bot, dp, Form
-from aiogram import types
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
-import json
+from aiogram.filters import Command
+from aiogram.fsm.state import StatesGroup, State
 
-async def process_update(update_data):
-    """Async update processing"""
-    update = types.Update(**update_data)
-    await dp.feed_update(bot=bot, update=update)
+# ========== KONFIGURATSIYA ==========
+# Papka manzilini aniqlash
+BASE_DIR = Path(__file__).parent
+ENV_PATH = BASE_DIR / ".env"
 
-@app.route('/webhook', methods=['POST'])
-def webhook():
+# .env fayli yo'q bo'lsa yaratish
+if not ENV_PATH.exists():
+    print(f"⚠️ .env fayli topilmadi: {ENV_PATH}")
+    print("📝 Namuna .env fayli yaratilmoqda...")
+    with open(ENV_PATH, "w") as f:
+        f.write("# Telegram Bot Token\n")
+        f.write("BOT_TOKEN=your_bot_token_here\n\n")
+        f.write("# Admin Telegram ID\n")
+        f.write("ADMIN_ID=146900578\n")
+    print("✅ .env fayli yaratildi. Token qo'ying!")
+
+# Environment yuklash
+load_dotenv(ENV_PATH)
+
+# Token va Admin ID olish
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN or BOT_TOKEN == "your_bot_token_here":
+    print("❌ XATO: BOT_TOKEN topilmadi yoki default qiymat!")
+    print(f"📁 {ENV_PATH} faylini oching va BOT_TOKEN ni yozing")
+    print("🛠️ Bot token olish uchun: @BotFather > /newbot")
+    sys.exit(1)
+
+# Admin ID (agar bo'lmasa default)
+ADMIN_ID = 146900578  # Default qiymat
+admin_env = os.getenv("ADMIN_ID")
+if admin_env:
     try:
-        data = request.json
-        
-        # Async funksiyani sync qilish
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(process_update(data))
-        loop.close()
-        
-        return jsonify({"status": "ok"})
+        ADMIN_ID = int(admin_env)
+    except ValueError:
+        print(f"⚠️ ADMIN_ID noto'g'ri: {admin_env}, default ishlatilmoqda")
+
+print(f"✅ Bot sozlandi")
+print(f"✅ Admin ID: {ADMIN_ID}")
+
+# Bot obyektlari
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher(storage=MemoryStorage())
+
+# ========== QOLGAN KOD O'ZGARMAS ==========
+class Form(StatesGroup):
+    group = State()
+    name = State()
+    phone = State()
+
+@dp.message(Command("start"))
+async def start(message: types.Message, state: FSMContext):
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="1-группа"), KeyboardButton(text="2-группа")],
+            [KeyboardButton(text="3-группа"), KeyboardButton(text="4-группа")],
+            [KeyboardButton(text="Ввести группу вручную")]
+        ],
+        resize_keyboard=True
+    )
+    await message.answer("Выберите группу или введите её номер:", reply_markup=kb)
+    await state.set_state(Form.group)
+
+@dp.message(Form.group)
+async def get_group(message: types.Message, state: FSMContext):
+    await state.update_data(group=message.text)
+    await message.answer("Теперь введите Имя и Фамилию:", reply_markup=types.ReplyKeyboardRemove())
+    await state.set_state(Form.name)
+
+@dp.message(Form.name)
+async def get_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="Отправить номер", request_contact=True)]],
+        resize_keyboard=True
+    )
+    await message.answer("Отправьте номер телефона или введите вручную:", reply_markup=kb)
+    await state.set_state(Form.phone)
+
+@dp.message(Form.phone)
+async def get_phone(message: types.Message, state: FSMContext):
+    data = await state.get_data()
     
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/')
-def home():
-    return "Telegram Bot ishlamoqda ✅"
-
-@app.route('/setwebhook')
-def set_webhook():
-    """Webhook ni sozlash uchun (bir marta chaqirish kerak)"""
-    try:
-        import asyncio
-        
-        async def set_wh():
-            webhook_url = "https://nanoregisterbot.pythonanywhere.com/webhook"
-            await bot.set_webhook(webhook_url)
-            return f"Webhook sozlandi: {webhook_url}"
-        
-        loop = asyncio.new_event_loop()
-        result = loop.run_until_complete(set_wh())
-        loop.close()
-        
-        return result
+    if message.contact:
+        phone = message.contact.phone_number
+    else:
+        phone = message.text
     
-    except Exception as e:
-        return f"Xato: {e}"
-
-@app.route('/deletewebhook')
-def delete_webhook():
-    """Webhook ni o'chirish"""
-    try:
-        import asyncio
-        
-        async def del_wh():
-            await bot.delete_webhook()
-            return "Webhook o'chirildi"
-        
-        loop = asyncio.new_event_loop()
-        result = loop.run_until_complete(del_wh())
-        loop.close()
-        
-        return result
+    data["phone"] = phone
     
-    except Exception as e:
-        return f"Xato: {e}"
+    text = (
+        "📥 *НОВАЯ ЗАЯВКА*\n\n"
+        f"📚 Группа: {data['group']}\n"
+        f"👤 Имя: {data['name']}\n"
+        f"📞 Телефон: {data['phone']}\n"
+        f"🆔 Отправитель: {message.from_user.id}"
+    )
+    
+    await bot.send_message(chat_id=ADMIN_ID, text=text, parse_mode="Markdown")
+    await message.answer("Спасибо! Ваша заявка отправлена ✔️")
+    await state.clear()
 
-# Flask app ni export qilish
-application = app
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
