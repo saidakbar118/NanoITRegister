@@ -12,8 +12,8 @@ from aiogram.fsm.state import StatesGroup, State
 # Загружаем переменные окружения
 load_dotenv()
 
-BOT_TOKEN = os.getenv("8576072030:AAGLkatiFFeFfqpwfYwCn2nMx1zrLi4go7k")
-ADMIN_ID = int(os.getenv("146900578"))
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = 146900578 
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=MemoryStorage())
