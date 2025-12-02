@@ -94,7 +94,7 @@ async def get_phone(message: types.Message, state: FSMContext):
 # ========== WEBHOOK SOZLASH ==========
 async def on_startup(bot: Bot):
     # Webhook sozlash
-    webhook_url = f"https://{YOUR_PYTHONANYWHERE_USERNAME}.pythonanywhere.com/webhook"
+    webhook_url = f"https://{"saidakbar118"}.pythonanywhere.com/webhook"
     await bot.set_webhook(webhook_url)
     print(f"✅ Webhook sozlandi: {webhook_url}")
 
